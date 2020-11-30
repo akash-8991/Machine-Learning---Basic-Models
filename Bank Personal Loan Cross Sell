@@ -1,0 +1,512 @@
+from __future__ import division, print_function, unicode_literals
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+import seaborn as sns
+
+%matplotlib inline
+
+import warnings
+warnings.filterwarnings('ignore')
+
+#Import packages and read data
+bank = pd.read_csv('Bank_Personal_Loan_Modelling.csv')
+
+# No missing data
+print(bank.info())
+
+# No duplicated data
+print(sum(bank.duplicated()))
+
+#First few rows of data
+bank.head()
+
+#number of columns and rows
+bank.shape
+
+#List all the column names
+bank.columns
+
+#Descriptive statistics for numeric attributes
+bank.describe()
+
+# Binary categories: target variable personal loan, also securities account, CD account, online banking and credit card. 
+# Counts of both classes in binary variables
+
+## Personal loan - Did this customer accept the personal loan offered in the last campaign? This is our target variable
+print(bank['Personal Loan'].value_counts(dropna = False))
+
+## Securities Account - Does the customer have a securities account with the bank?
+print(bank['Securities Account'].value_counts(dropna = False))
+
+## CD Account - Does the customer have a certificate of deposit (CD) account with the bank?
+print(bank['CD Account'].value_counts(dropna = False))
+
+## Online - Does the customer use internet banking facilities?
+print(bank['Online'].value_counts(dropna = False))
+
+## Credit Card - Does the customer use a credit card issued by UniversalBank?
+print(bank['CreditCard'].value_counts(dropna = False))
+
+# Interval categories: experience, age, income, CC avg and mortgage.
+
+## Experience - Year of experience (negative values!!!)
+print(bank.loc[bank.Experience < 0].head())
+print(len(bank[bank.Experience < 0]))    # 52 negative
+
+## Age - 
+bank['Age'].plot('hist')
+plt.title("Age")
+plt.show()
+
+## Income - Annual income in dollars (which income, what the scale is?)
+bank['Income'].plot('hist')
+plt.title("Income")
+plt.show()
+
+## CCAvg - Average credit card spending
+bank['CCAvg'].plot('hist')
+plt.title("CCAvg")
+plt.show()
+
+## Mortgage - Value of House Mortgage
+bank['Mortgage'].plot('hist')
+plt.title("Mortgage")
+plt.show()
+
+# Other than Age variable (normal distributed), all the other variables are Right Skewed
+
+# Ordinal categories: family and education
+
+# Family (mostly 1)
+print(bank['Family'].value_counts())
+
+# Education - Education level of the customer (mostly 1)
+print(bank['Education'].value_counts())
+
+# Counts for target variable
+## Personal loan - Did this customer accept the personal loan offered in the last campaign? This is our target variable
+print(bank['Personal Loan'].value_counts(dropna = False))
+
+# Bar plot visualizing two classes in the target variable
+count = bank["Personal Loan"].value_counts()
+count.plot(kind = "bar", title = "count")
+# The distribution of target column gives us unbalanced count which might lead to bias model development
+
+# Deal with negative values in Experience
+## Replace with the median experience from people having the same age
+bank_Age = bank[bank.Experience >= 0].groupby('Age').Experience.median().to_frame('Experience Median').reindex()
+bank = pd.merge(bank, bank_Age, on = "Age", how = "left")
+
+# Round up the value to an integer
+bank.loc[bank.Experience < 0, 'Experience'] = np.round(bank['Experience Median'])
+
+# 23 years old == null
+## Since no one in the dataset aged 23 had reported accurate experience, and based on that of 22 and 24, we replace negative values with 0.
+bank.loc[bank.Experience.isnull(), 'Experience'] = 0
+
+# ZIP Code
+bank['ZIP Code'] = bank['ZIP Code'].astype(str)
+bank['Area'] = bank['ZIP Code'].str.slice(0, 3)
+bank['Area'] = bank['Area'].astype('category')
+bank['ZIP Code'] = bank['ZIP Code'].astype('category')
+
+# Education, Family
+bank['Education'] = bank['Education'].astype('category')
+bank['Family'] = bank['Family'].astype('category')
+
+# Show all the data types
+bank.dtypes
+
+# Drop unnecessary columns in order to plot the correlation plot.
+bank.drop(['ID', 'Experience Median', 'ZIP Code'],  inplace=True, axis=1)
+corr = bank.corr()
+
+# Generate a mask for the upper triangle
+mask = np.zeros_like(corr, dtype=np.bool)
+mask[np.triu_indices_from(mask)] = True
+
+# Set up the matplotlib figure
+f, ax = plt.subplots(figsize=(11, 9))
+
+# Generate a custom diverging colormap
+cmap = sns.diverging_palette(220, 10, as_cmap=True)
+
+# Draw the heatmap with the mask and correct aspect ratio
+sns.heatmap(corr, mask=mask, cmap=cmap, vmax=1, vmin=-1, center=0,
+            square=True, linewidths=.5, cbar_kws={"shrink": .5})
+
+corr
+
+# Family
+## Family has 4 levels, and we create 3 dummy variables
+
+familydummy = pd.get_dummies(bank['Family'], prefix='Family')
+bank_family = pd.concat([bank, familydummy], axis=1)      
+bank_family.drop(['Family_4'], inplace=True, axis=1)
+# Education
+## Education has 3 levels, and we create 2 dummy variables
+
+edudummy =  pd.get_dummies(bank_family['Education'], prefix='Education')
+bank_edu = pd.concat([bank_family, edudummy], axis=1)      
+bank_edu.drop(['Education_3'], inplace=True, axis=1)
+
+# Total numbers of rows and columns
+bank_edu.shape
+
+# Descriptive statistics of the cleaned dataset
+bank_edu.describe()
+
+# List all the column names
+list(bank_edu.columns.values)
+
+## x is used for NB, KNN and Logistic Regression. This model contains dummy variables 
+##  Targe variable is 'Personal Loan'
+
+x = bank_edu[['Age',
+ 'Income',
+ 'CCAvg',
+ 'Mortgage',
+ 'Securities Account',
+ 'CD Account',
+ 'Online',
+ 'CreditCard',
+ 'Family_1',
+ 'Family_2',
+ 'Family_3',
+ 'Education_1',
+ 'Education_2']]
+
+y = bank_edu["Personal Loan"]
+
+# Split Data for Modelling using NB, KNN and Logistic Regression
+
+from sklearn.model_selection import train_test_split
+
+x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.30, random_state=0, stratify = y)
+x_train.describe()
+
+# Standardize for x (both training and test data)
+
+from sklearn.preprocessing import StandardScaler
+
+sc = StandardScaler()
+
+sc.fit(x_train)
+x_train_std = sc.transform(x_train)
+x_test_std = sc.transform(x_test)
+x_std = sc.transform(x)
+
+# KNN Model
+# Use GridSearch to find the best KNN parameters, and fit the training data to apply to test data.
+
+from sklearn import neighbors, datasets
+from sklearn.model_selection import GridSearchCV 
+
+gsknn = GridSearchCV(estimator=neighbors.KNeighborsClassifier(p=2, 
+                           metric='minkowski'),
+                  param_grid=[{'n_neighbors': [1,3,5,7,9,11,13,15,17,19,21],
+                               'weights':['uniform','distance']}],
+                  scoring='accuracy',
+                  cv=10,
+                  n_jobs=4)
+
+gsknn_fit = gsknn.fit(x_train_std, y_train)          
+y_pred_knn = gsknn_fit.predict(x_test_std)
+
+## best parameter
+print(gsknn.best_params_)
+
+## best estimator
+print("KNN parameters: \n", gsknn_fit.best_estimator_)
+
+## best score
+print("Best score: ", gsknn.best_score_)
+
+## The overall accuracy on the training set:
+print("Training score: ", gsknn.score(x_train_std, y_train))
+
+## The overall accuracy on the test set:
+print("Test accuracy: ", gsknn.score(x_test_std, y_test))
+
+# Generalization Performance of KNN on test data
+
+from sklearn.metrics import accuracy_score, precision_score, recall_score, classification_report
+accuracy = sum(y_pred_knn == y_test)/len(y_test)
+error = 1 - accuracy
+print("The predictive accuracy is: ", round(accuracy, 2))
+print("The classification error is: ", round(error, 2))
+print(classification_report(y_test, y_pred_knn))
+
+# Confusion matrix
+from sklearn.metrics import confusion_matrix
+cnf_matrix = pd.DataFrame(confusion_matrix(y_test, y_pred_knn), columns = ['Predict 0', 'Predict 1'], index = ['Actual 0', 'Actual 1'])
+print("The Confusion matrix: \n", cnf_matrix)
+
+# Cross Validation score for KNN model
+
+from sklearn.model_selection import cross_val_score
+scores_knn =cross_val_score(gsknn, x_train_std, y_train, 
+                         scoring='accuracy', cv=10)
+print('CV accuracy: %.3f +/- %.3f' % (np.mean(scores_knn), np.std(scores_knn)))
+
+# Logistic Regression
+# Use GridSearch to find the best logistic regression parameters, and fit the training data to apply to test data.
+
+from sklearn.linear_model import LogisticRegression 
+
+gslr = GridSearchCV(estimator=LogisticRegression(random_state=0),
+                  param_grid=[{'C': [ 0.00001, 0.0001, 0.001, 0.01, 0.1 ,1 ,10 ,100, 1000, 10000, 100000, 1000000, 10000000],
+                             'penalty':['l1','l2']}],
+                  scoring='accuracy',
+                  cv=10)
+
+gslr_fit = gslr.fit(x_train, y_train)          
+y_pred_lr = gslr_fit.predict(x_test)
+
+## best parameter
+print(gslr.best_params_)
+
+## best estimator
+print("Logistic parameters: \n", gslr_fit.best_estimator_)
+
+## best score
+print("Best score: ", gslr.best_score_)
+
+## The overall accuracy on the training set:
+print("Training score: ", gslr.score(x_train, y_train))
+
+## The overall accuracy on the test set:
+print("Test accuracy: ", gslr.score(x_test, y_test))
+
+# Generalization Performance of logistic regression on test data
+
+accuracy = sum(y_pred_lr == y_test)/len(y_test)
+error = 1 - accuracy
+print("The predictive accuracy is: ", round(accuracy, 2))
+print("The classification error is: ", round(error, 2))
+print(classification_report(y_test, y_pred_lr))
+
+# Confusion matrix
+
+cnf_matrix = pd.DataFrame(confusion_matrix(y_test, y_pred_lr), columns = ['Predict 0', 'Predict 1'], index = ['Actual 0', 'Actual 1'])
+print("The Confusion matrix: \n", cnf_matrix)
+
+# Cross validation performance for logistic regression 
+
+scores_lr =cross_val_score(gslr, x_train, y_train, 
+                         scoring='accuracy', cv=10)
+print('CV accuracy: %.3f +/- %.3f' % (np.mean(scores_lr),np.std(scores_lr)))
+
+# Naive Bayes (NB)
+
+from sklearn.naive_bayes import GaussianNB 
+
+gsnb = GaussianNB()
+
+gsnb_fit = gsnb.fit(x_train, y_train)          
+y_pred_nb = gsnb_fit.predict(x_test)
+
+## The overall accuracy on the training set:
+print("Training score: ", gsnb.score(x_train, y_train))
+
+## The overall accuracy on the test set:
+print("Test accuracy: ", gsnb.score(x_test, y_test))
+
+# Generalization Performance of NB on test data
+
+accuracy = sum(y_pred_nb == y_test)/len(y_test)
+error = 1 - accuracy
+print("The predictive accuracy is: ", round(accuracy, 2))
+print("The classification error is: ", round(error, 2))
+print(classification_report(y_test, y_pred_nb))
+
+# Confusion matrix
+
+cnf_matrix = pd.DataFrame(confusion_matrix(y_test, y_pred_nb), columns = ['Predict 0', 'Predict 1'], index = ['Actual 0', 'Actual 1'])
+print("The Confusion matrix: \n", cnf_matrix)
+
+# Cross validation performance for logistic regression 
+
+scores_nb =cross_val_score(gsnb, x_train, y_train, 
+                         scoring='accuracy', cv=10)
+print('CV accuracy: %.3f +/- %.3f' % (np.mean(scores_nb),np.std(scores_nb)))
+
+# The dataset is imbalanced, we resample the rare class to the same amount of the larger class to get 50%:50% ratio.
+# We only resample for the training dataset, excluding test data
+
+from sklearn.utils import resample
+
+## resample for NB, KNN and logistic regression
+x_train_resampled, y_train_resampled = resample(x_train[ y_train == 1],
+                                    y_train[y_train == 1],
+                                    replace=True, 
+                                    n_samples=x_train[y_train == 0].shape[0], 
+                                    random_state=0)
+                                    
+x_train_zero = x_train[y_train == 0]
+x_train_resample = pd.concat([x_train_resampled, x_train_zero])
+y_train_zero = y_train[y_train == 0]
+y_train_resample = pd.concat([y_train_resampled, y_train_zero])
+# Standardize for all x after resampling
+
+sc.fit(x_train_resample)
+x_train_resample_std = sc.transform(x_train_resample)
+x_test_std = sc.transform(x_test)
+
+# KNN
+# Use GridSearch to find the best KNN parameters after resampling, and fit the training data to apply to test data
+
+gsknn_resample = GridSearchCV(estimator=neighbors.KNeighborsClassifier(p=2, 
+                           metric='minkowski'),
+                  param_grid=[{'n_neighbors': [1,3,5,7,9,11,13,15,17,19,21],
+                               'weights':['uniform','distance']}],
+                  scoring='accuracy',
+                  cv=10,
+                  n_jobs=4)
+
+gsknn_resample_fit = gsknn_resample.fit(x_train_resample_std, y_train_resample)          
+y_pred_knn_resample = gsknn_resample_fit.predict(x_test_std)
+
+## best parameter
+print(gsknn_resample.best_params_)
+
+## best estimator
+print("KNN parameters: \n", gsknn_resample_fit.best_estimator_)
+
+## best score
+print("Best score: ", gsknn_resample.best_score_)
+
+## The overall accuracy on the training set:
+print("Training score: ", gsknn_resample.score(x_train_resample_std, y_train_resample))
+
+## The overall accuracy on the test set:
+print("Test accuracy: ", gsknn_resample.score(x_test_std, y_test))
+
+# Generalization Performance of KNN after resampling on test data
+
+from sklearn.metrics import accuracy_score, precision_score, recall_score, classification_report
+accuracy = sum(y_pred_knn_resample == y_test)/len(y_test)
+error = 1 - accuracy
+print("The predictive accuracy is: ", round(accuracy, 2))
+print("The classification error is: ", round(error, 2))
+print(classification_report(y_test, y_pred_knn_resample))
+
+# Confusion matrix
+from sklearn.metrics import confusion_matrix
+
+cnf_matrix = pd.DataFrame(confusion_matrix(y_test, y_pred_knn_resample), columns = ['Predict 0', 'Predict 1'], index = ['Actual 0', 'Actual 1'])
+print("The Confusion matrix: \n", cnf_matrix)
+
+# Cross validaiton score for KNN after resampling
+
+scores_knn_resample =cross_val_score(gsknn_resample, x_train_resample_std, y_train_resample, 
+                         scoring='accuracy', cv=10)
+print('CV accuracy: %.3f +/- %.3f' % (np.mean(scores_knn_resample), np.std(scores_knn_resample)))
+
+# Logistic Regression
+# Use GridSearch to find the best logistic regression parameters after resampling, and fit the training data to apply to test data.
+
+gslr_resample = GridSearchCV(estimator=LogisticRegression(random_state=0),
+                  param_grid=[{'C': [ 0.00001, 0.0001, 0.001, 0.01, 0.1 ,1 ,10 ,100, 1000, 10000, 100000, 1000000, 10000000],
+                             'penalty':['l1','l2']}],
+                  scoring='accuracy',
+                  cv=10)
+
+gslr_resample_fit = gslr_resample.fit(x_train_resample, y_train_resample)          
+y_pred_lr_resample = gslr_resample_fit.predict(x_test)
+
+## best parameter
+print(gslr_resample.best_params_)
+
+## best estimator
+print("Logistic parameters: \n", gslr_resample_fit.best_estimator_)
+
+## best score
+print("Best score: ", gslr_resample.best_score_)
+
+## The overall accuracy on the training set:
+print("Training score: ", gslr_resample.score(x_train_resample, y_train_resample))
+
+## The overall accuracy on the test set:
+print("Test accuracy: ", gslr_resample.score(x_test, y_test))
+
+# Generalization Performance of logistic regression after resampling on test data
+
+accuracy = sum(y_pred_lr_resample == y_test)/len(y_test)
+error = 1 - accuracy
+print("The predictive accuracy is: ", round(accuracy, 2))
+print("The classification error is: ", round(error, 2))
+print(classification_report(y_test, y_pred_lr_resample))
+
+# Confusion matrix
+from sklearn.metrics import confusion_matrix
+
+cnf_matrix = pd.DataFrame(confusion_matrix(y_test, y_pred_lr_resample), columns = ['Predict 0', 'Predict 1'], index = ['Actual 0', 'Actual 1'])
+print("The Confusion matrix: \n", cnf_matrix)
+
+# Cross validation score for logisitc regression after resampling
+
+scores_lr_resample =cross_val_score(gslr_resample, x_train_resample, y_train_resample, 
+                                    scoring='accuracy', cv=10)
+print('CV accuracy: %.3f +/- %.3f' % (np.mean(scores_lr_resample), np.std(scores_lr_resample)))
+
+# Naive Bayes
+
+gsnb_resample = GaussianNB()
+
+gsnb_resample_fit = gsnb_resample.fit(x_train_resample, y_train_resample)          
+y_pred_nb_resample = gsnb_resample_fit.predict(x_test)
+
+## The overall accuracy on the training set:
+print("Training score: ", gsnb_resample.score(x_train_resample, y_train_resample))
+
+## The overall accuracy on the test set:
+print("Test accuracy: ", gsnb_resample.score(x_test, y_test))
+
+# Generalization Performance of logistic regression after resampling on test data
+
+accuracy = sum(y_pred_nb_resample == y_test)/len(y_test)
+error = 1 - accuracy
+print("The predictive accuracy is: ", round(accuracy, 2))
+print("The classification error is: ", round(error, 2))
+print(classification_report(y_test, y_pred_nb_resample))
+
+# Confusion matrix
+from sklearn.metrics import confusion_matrix
+
+cnf_matrix = pd.DataFrame(confusion_matrix(y_test, y_pred_nb_resample), columns = ['Predict 0', 'Predict 1'], index = ['Actual 0', 'Actual 1'])
+print("The Confusion matrix: \n", cnf_matrix)
+
+# Cross validation score for logisitc regression after resampling
+
+scores_nb_resample =cross_val_score(gsnb_resample, x_train_resample, y_train_resample, 
+                                    scoring='accuracy', cv=10)
+print('CV accuracy: %.3f +/- %.3f' % (np.mean(scores_nb_resample), np.std(scores_nb_resample)))
+
+# Final Model (model considered post re-sampling i.e. post taking 
+# care of unbalanced dataset for categories 0 & 1 in Personal Loan feature)
+# Performance where "Recall" & "Precision" are taken for people availing Personal Loan,
+
+# KNN,
+  # Predictive Accuracy - 96%
+  # Classification Error - 4%
+  # Precision - 87%
+  # Recall - 74%
+  # CV Accuracy - 0.994 +/- 0.003
+# Logistic Regression,
+  # Predictive Accuracy - 91%
+  # Classification Error - 9%
+  # Precision - 51%
+  # Recall - 91%
+  # CV Accuracy - 0.906 +/- 0.009
+# Naive Bayes,
+  # Predictive Accuracy - 89%
+  # Classification Error - 11%
+  # Precision - 45%
+  # Recall - 82%
+  # CV Accuracy - 0.838 +/- 0.007
+
+## Basis the above model evaluation, for the given dataset set we can assume KNN to be the best performing model.
